@@ -14,8 +14,8 @@ from webdriver_manager.chrome import ChromeDriverManager
 #fda는 requests로 긁으면 차단됨, selenium으로 접속해서 가져오기
 # 1.브라우저 준비: build_driver()
 # 2.목록 페이지 HTML 가져오기: get_list_html()
-# 3.목록 HTML에서 기사 메타 추출: parse_press_announcements()
-# 4.상세 페이지 들어가서 본문 긁기: fetch_body_en()
+# 3.목록 HTML에서 기사 메타 추출: parse_press_announce()
+# 4.상세 페이지 들어가서 본문 긁기: fetch_body()
 # 5.전체 실행 흐름 제어 + 파일 저장: main()
 
 BASE_URL = "https://www.fda.gov"
