@@ -1,4 +1,4 @@
-import json, random, time, hashlib
+import json, random, time, hashlib, re
 from datetime import datetime
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
