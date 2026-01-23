@@ -106,14 +106,14 @@ def extract_json_llm(llm: ChatGoogleGenerativeAI, body_en: str, max_retries: int
         
         except Exception as e:
             last_err = e
-            if not error__429(e):
+            if not error_429(e):
                 raise
             
             if t >= max_retries:
                 raise
             
             delay = backoffs[min(t, len(backoffs) - 1)]
-            print(f"[429] RESOURCE_EXHAUSTED - {delay}s 후 재시도 ({attempt+1}/{max_retries})")
+            print(f"[429] - {delay}s 후 재시도 ({t+1}/{max_retries})")
             time.sleep(delay)
 
 
