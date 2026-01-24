@@ -77,6 +77,48 @@ WHEN NOT MATCHED THEN INSERT (
 );
 """
 
+GET_METRIC_JSON_SQL = """
+WITH base AS (
+    SELECT 
+        COUNT(*) as total,
+        SUM(IFF(is_verified, 1, 0)) as verified_ok,
+        SUM(IFF(NOT is_verified, 1, 0)) as verified_fail
+    FROM FDA_DB.PUBLIC.FDA_ARTICLES
+    WHERE article_date >= DATEADD('day', -30, CURRENT_DATE())
+),
+errors AS (
+  SELECT
+    SPLIT_PART(f.value::string, ':', 1) AS err_type,
+    COUNT(*) AS cnt
+  FROM FDA_DB.PUBLIC.FDA_ARTICLES a,
+  LATERAL FLATTEN(input => COALESCE(a.verification_errs, PARSE_JSON('[]'))) f
+  WHERE a.article_date >= DATEADD('day', -30, CURRENT_DATE())
+  GROUP BY 1
+  ORDER BY 2 DESC
+  LIMIT 5
+),
+errors_arr AS (
+  SELECT
+    COALESCE(
+      ARRAY_AGG(OBJECT_CONSTRUCT('type', err_type, 'count', cnt)),
+      PARSE_JSON('[]')
+    ) AS top_errors
+  FROM errors
+)
+SELECT
+    OBJECT_CONSTRUCT(
+        'window_days', 30,
+        'total', (SELECT total FROM base),
+        'verified_ok', (SELECT verified_ok FROM base),
+        'verified_fail', (SELECT verified_fail FROM base),
+        'fail_rate', IFF((SELECT total FROM base)=0, 0, (SELECT verified_fail FROM base)/(SELECT total FROM base)),
+        'top_errors', (SELECT top_errors FROM errors_arr)
+  ) AS metric_json;
+"""
+
+
+
+
 MERGE_METRIC_SQL = """
 MERGE INTO FDA_DB.PUBLIC.MONITOR_METRIC_DAILY t
 USING (
@@ -99,32 +141,6 @@ WHEN NOT MATCHED THEN INSERT (
 );
 """
 
-def build_metrics(records: list[dict]) -> dict:
-    total = len(records)
-    if total == 0:
-        return {"total": 0, "verified_ok": 0, "verified_fail": 0, "fail_rate": 0, "top_errors": []}
-    
-    ok = sum(1 for r in records if r.get("is_verified") is True)
-    fail = total - ok
-
-    c = Counter()
-    for r in records:
-        if r.get("is_verified") is True:
-            continue
-        for e in (r.get("verification_errs") or []):
-            etype = str(e).split(":")[0]
-            c[etype] += 1
-
-    top_errors = [{"type": k, "count": v} for k, v in c.most_common(10)]
-    fail_rate = (fail / total)
-
-    return {
-        "total": total,
-        "verified_ok": ok,
-        "verified_fail": fail,
-        "fail_rate": fail_rate,
-        "top_errors": top_errors,
-    }
 
 def main():
     print(f"data from: {VERIFIED_PATH}")
@@ -155,31 +171,34 @@ def main():
                 "processed_at": r.get("processed_at"),
             }
             cur.execute(MERGE_ARTICLE_SQL, params)
-
-
-        print("모니터링 지표 계산")
+            
+        print("snowflake 테이블기반 지표 생성")
+        cur.execute(GET_METRIC_JSON_SQL)
+        cal_metric_obj = cur.fetchone()[0]
+        
+        
         now = datetime.now()
         run_id = date.today().isoformat()
-        metric = build_metrics(records)
-
+        
         cur.execute(
             MERGE_METRIC_SQL,
             {
                 "run_id": run_id,
                 "run_ts": now.isoformat(timespec="seconds"),
                 "metric_date": run_id,
-                "metric_json": json.dumps(metric, ensure_ascii=False),
+                "metric_json": cal_metric_obj,
             }
         )
-
         conn.commit()
-        print("Snowflake 적재 완료")
-
+        print("적재 및 지표 업데이트 완료")
     except Exception as e:
-        print(f"에러 발생: {e}")
+        print(f"에러발생:{e}")
     finally:
         cur.close()
         conn.close()
+
+
+
 
 if __name__ == "__main__":
     main()
