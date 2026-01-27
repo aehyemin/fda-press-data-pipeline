@@ -1,4 +1,4 @@
-import json, random, time, hashlib, re
+import json, random, time, hashlib, re, os
 from datetime import datetime
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
@@ -12,11 +12,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 
 #fda는 requests로 긁으면 차단됨, selenium으로 접속해서 가져오기
-# 1.브라우저 준비: build_driver()
-# 2.목록 페이지 HTML 가져오기: get_list_html()
-# 3.목록 HTML에서 기사 메타 추출: parse_press_announce()
-# 4.상세 페이지 들어가서 본문 긁기: fetch_body()
-# 5.전체 실행 흐름 제어 + 파일 저장: main()
+
 
 BASE_URL = "https://www.fda.gov"
 LIST_URL = "https://www.fda.gov/news-events/fda-newsroom/press-announcements"
@@ -63,7 +59,8 @@ def parse_press_annouce(list_html: str) -> list[dict]:
         timeline = a.find("time")
         if timeline and timeline.has_attr("datetime"):
             published_at = timeline["datetime"] #2026-01-21T15:00:00Z
-            date = published_at[:10] #2026-01-21
+            # date = published_at[:10] #2026-01-21
+            date = published_at
         else:
             published_at = ""
             date = ""
@@ -116,7 +113,6 @@ def fetch_body(driver: webdriver.Chrome, url: str, max_retry: int=3) -> str:
         soup = BeautifulSoup(driver.page_source, "lxml")
         main = soup.select_one("main") or soup
 
-        # 불필요한 영역 제거(네비/푸터/스크립트 등)
         for sel in ["header", "aside", ".row", ".text-center", ".field--label", ".field--item"]:
             for tag in main.select(sel):
                 tag.decompose()
@@ -132,35 +128,72 @@ def fetch_body(driver: webdriver.Chrome, url: str, max_retry: int=3) -> str:
 
 def main():
     driver = build_driver(headless=False)
-    
+    existing_hash = set()
+    if os.path.exists(SAVE_PATH):
+        with open(SAVE_PATH, 'r', encoding='utf-8') as f:
+            for line in f:
+                try:
+                    item = json.loads(line)
+                    existing_hash.add(item['url_hash'])
+                except:
+                    continue
+    print(f"기존 데이터: {len(existing_hash)}건")
+    all_scraped_articles = []
+    MAX_PAGES=4
     try:
-        list_html = get_list_html(driver)
-        articles = parse_press_annouce(list_html)
-        articles = sorted(
-            articles,
-            key=lambda x:x["date"] if len(x.get("date", "")) == 10 else "0000-00-00",
-            reverse=True,
-        )
-        
-        N = 10
-        articles = articles[:10]
-        print(f"목록수집: {len(articles)}건")
-        
-        for i, a in enumerate(articles, 1):
-            body = fetch_body(driver, a["url"], max_retry=3)
-            a["body_en"] = body
-        
-            if body:
-                print(f"{i}/{len(articles)} 성공: {a['title'][:30]}")
-            else:
-                print(f"{i}/{len(articles)} 실패: {a['title'][:30]}")
+          
+        for page in range(0, MAX_PAGES):
+            print(f"{page}페이지 목록 확인")
+            page_url = f"{LIST_URL}?page={page}"
+            driver.get(page_url)
                 
-        with open(SAVE_PATH, 'w', encoding='utf-8') as f:
-            for a in articles:
-                f.write(json.dumps(a, ensure_ascii=False) + "\n")
+            try:
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "a[href^='/news-events/press-announcements/']"))
+                )
+                list_html = driver.page_source
+                page_articles = parse_press_annouce(list_html)
+                    
+
+                new_in_page = [a for a in page_articles if a['url_hash'] not in existing_hash]
+                all_scraped_articles.extend(new_in_page)
+                    
+                print(f"{page}페이지: 신규 {len(new_in_page)}건 발견 (누적 신규: {len(all_scraped_articles)}건)")
+                    
+                if len(page_articles) > 0 and len(new_in_page) == 0:
+                    print("중복된 데이터.")
+                    break
+                        
+            except Exception as e:
+                print(f"{page} 오류: {e}")
+                break 
                 
-        print("raw_articels.jsonl 저장(본문)")
+            time.sleep(random.uniform(1, 1.5)) 
+
+        if not all_scraped_articles:
+            print("새로 수집할 기사가 없습니다. 프로그램 종료")
+            return
+
+
+        print(f"\n총 {len(all_scraped_articles)}건의 신규 본문 수집 시작")
             
+
+        with open(SAVE_PATH, 'a', encoding='utf-8') as f:
+            for i, a in enumerate(all_scraped_articles, 1):
+                body = fetch_body(driver, a["url"], max_retry=3)
+                a["body_en"] = body
+                
+                if body:
+
+                    f.write(json.dumps(a, ensure_ascii=False) + "\n")
+                    print(f"[{i}/{len(all_scraped_articles)}] 성공: {a['title'][:30]}")
+                else:
+                    print(f"[{i}/{len(all_scraped_articles)}] 실패: {a['title'][:30]}")
+                    
+                time.sleep(random.uniform(0.5, 1.0))
+                    
+        print(f"\n 신규 데이터 {len(all_scraped_articles)}건 적재 완료")
+                
     finally:
         driver.quit()
 

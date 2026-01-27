@@ -81,13 +81,24 @@ def validate_record(rec:Dict, body_en:str) -> Tuple[bool, List[str]]:
 
 def main():
     os.makedirs(os.path.dirname(VERIFIED_PATH), exist_ok=True)
-    if os.path.exists(VERIFIED_PATH):
-        os.remove(VERIFIED_PATH)
-        
-    raw_items = read_jsonl(RAW_PATH)
-    body_idx = build_body_index(raw_items)
+    processed_hash = set()
     
-    processed_items = read_jsonl(PROCESSED_PATH)
+    if os.path.exists(OUT_PATH):
+        with open(OUT_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    data = json.loads(line)
+                    if "url_hash" in data and "error" not in data:
+                        processed_hash.add(data["url_hash"])
+                except:
+                    continue
+
+    all_articles = read_jsonl(RAW_PATH)
+    target_articles = [a for a in all_articles if a.get("url_hash") not in processed_hash]
+    print(f"전체 {len(all_articles)}건 중 신규 가공 대상: {len(target_articles)}건")
+    if not target_articles:
+        print("새 기사가 없음")
+        return
     ok=0
     fail=0
     for rec in processed_items:

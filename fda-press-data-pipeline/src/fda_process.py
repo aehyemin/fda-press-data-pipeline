@@ -119,15 +119,29 @@ def extract_json_llm(llm: ChatGoogleGenerativeAI, body_en: str, max_retries: int
 
 
 def main():
-    if os.path.exists(OUT_PATH):
-        os.remove(OUT_PATH)
-        
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
-    articles = read_jsonl(RAW_PATH)
-    print(f"로드 완료: {len(articles)}")
+    
+    processed_hash = set()
+    if os.path.exists(OUT_PATH):
+        with open(OUT_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    data = json.loads(line)
+                    if "url_hash" in data and "error" not in data:
+                        processed_hash.add(data["url_hash"])
+                except:
+                     continue
+    
+    print(f"이미 처리된 기사: {len(processed_hash)}건 스킵 준비 완료")
+    all_articles = read_jsonl(RAW_PATH)
+    target_articles = [a for a in all_articles if a.get("url_hash") not in processed_hash]
+    
+    if not target_articles:
+        print("새로 가공할 기사가 없음")
+        return
     llm = build_llm()
-    for i, a in enumerate(articles,1):
-        print(f"{i}번째 기사 시작 ==")
+    for i, a in enumerate(target_articles,1):
+        print(f"{i}번째 기사 시작")
         body_en = (a.get("body_en") or "").strip()
         body_en = body_en.replace("\n", " ")
         body_en = " ".join(body_en.split())
@@ -165,7 +179,7 @@ def main():
             }
             append_jsonl(OUT_PATH, err)
             
-        print(f"{i}번째 기사 LLM 응답 완료 ==")
+        print(f"{i}번째 기사 LLM 응답 완료")
         time.sleep(SLEEP_SECONDS)
         
 
