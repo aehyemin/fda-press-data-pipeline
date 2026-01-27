@@ -52,6 +52,11 @@ AI 환각을 검증 로직으로 제어하여 **운영 가능한 데이터 파�
   - 핵심 키워드 (`keywords`)
   - 주요 엔티티 (`main_entities`)
   - 요약 근거 문장 (`evidence_sentences`)
+ 
+  - 새로 추가된 기사만 가공하도록 중복처리
+<img width="330" height="281" alt="image" src="https://github.com/user-attachments/assets/e50d9138-7114-4e18-b21a-fe02eadc8870" />
+
+
 
 LLM을 자유 생성이 아닌 **구조적 추출 도구**로 활용했습니다.
 
